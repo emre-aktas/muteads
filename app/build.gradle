@@ -8,7 +8,18 @@ def localFile = rootProject.file('local.properties')
 if (localFile.exists()) {
     localFile.withInputStream { localProps.load(it) }
 }
-def jevKey = localProps.getProperty('JEV_API_KEY', '')
+
+// A key in local.properties is a convenience for your own debug builds only.
+// Release builds never bake one in: the APK is public, and whoever downloads it
+// enters their own key in Settings.
+def debugKey = localProps.getProperty('JEV_API_KEY', '')
+
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file('keystore.properties')
+def hasKeystore = keystoreFile.exists()
+if (hasKeystore) {
+    keystoreFile.withInputStream { keystoreProps.load(it) }
+}
 
 android {
     compileSdkVersion 29
@@ -20,16 +31,31 @@ android {
         targetSdkVersion 29
         versionCode 6
         versionName "2.0"
-        buildConfigField "String", "JEV_API_KEY", "\"${jevKey}\""
+    }
+
+    signingConfigs {
+        if (hasKeystore) {
+            release {
+                storeFile rootProject.file(keystoreProps.getProperty('storeFile'))
+                storePassword keystoreProps.getProperty('storePassword')
+                keyAlias keystoreProps.getProperty('keyAlias')
+                keyPassword keystoreProps.getProperty('keyPassword')
+            }
+        }
     }
 
     buildTypes {
         debug {
             minifyEnabled false
+            buildConfigField "String", "JEV_API_KEY", "\"${debugKey}\""
         }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            buildConfigField "String", "JEV_API_KEY", '""'
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 

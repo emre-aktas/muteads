@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="site/logo.svg" width="72" alt="">
+  <img src="logo.svg" width="72" alt="">
   <h1>MuteAds</h1>
   <p><strong>Mute the ads, not the app.</strong></p>
   <p>
@@ -138,7 +138,6 @@ app/src/main/java/dev/emreaktas/muteads/
   Store.kt                       preferences and the decision log
   MainActivity.kt                Activity / Insights / Settings
   Ui.kt                          design tokens and view builders
-site/index.html                  the landing page, one file, three.js from a CDN
 ```
 
 `Ui.kt` holds a small design system: a mutable token object for light and dark, plus

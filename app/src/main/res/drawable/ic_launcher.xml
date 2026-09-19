@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One notification stays whole; the one under it is already sliding off.
+  Two shapes only, so it survives being rendered at 24dp in a status bar.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#09090B"
+        android:pathData="M0,0h24v24h-24z" />
+
+    <path
+        android:fillColor="#F4F4F5"
+        android:pathData="M5.6,5.6h12.8a2.6,2.6 0 0 1 0,5.2h-12.8a2.6,2.6 0 0 1 0,-5.2z" />
+
+    <path
+        android:fillColor="#F4F4F5"
+        android:fillAlpha="0.34"
+        android:pathData="M12.2,13.4h6.2a2.6,2.6 0 0 1 0,5.2h-6.2a2.6,2.6 0 0 1 0,-5.2z" />
+</vector>

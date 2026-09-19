@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MuteAds: mute the ads, not the app</title>
+<meta name="description" content="Sort thirty seconds of your own notifications and see how many you get wrong. Then let a model do it. Open source, Android, runs on your own Jev key.">
+<meta property="og:title" content="MuteAds">
+<meta property="og:description" content="Sort thirty seconds of notifications. See how many you get wrong.">
+<meta name="theme-color" content="#060607">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2309090B'/%3E%3Crect x='3.5' y='5.6' width='17' height='4.8' rx='2.4' fill='%23F4F4F5'/%3E%3Crect x='10' y='13.6' width='10.5' height='4.8' rx='2.4' fill='%23F4F4F5' opacity='.34'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#060607;--fg:#F4F4F5;
+  --s2:#131316;--s3:#1C1C21;--s4:#2A2A31;
+  --dim:#8B8B93;--faint:#5A5A62;
+  --junk:#E5484D;
+  --ease:cubic-bezier(.23,1,.32,1);
+  --gut:clamp(22px,4vw,56px);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--fg);
+  font-family:Inter,-apple-system,system-ui,sans-serif;font-size:16px;line-height:1.6;
+  letter-spacing:-.008em;-webkit-font-smoothing:antialiased;
+  overscroll-behavior:none;touch-action:manipulation}
+body::after{content:"";position:fixed;inset:0;z-index:90;pointer-events:none;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+a{color:inherit;text-decoration:none}
+h2,.sub,.kicker{text-wrap:balance}
+p{text-wrap:pretty}
+
+#app{position:fixed;inset:0}
+#gl{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none;cursor:default}
+#gl.grabbable{cursor:grab}
+#gl.grabbing{cursor:grabbing}
+
+.brand{position:absolute;top:var(--gut);left:var(--gut);z-index:6;display:flex;align-items:center;
+  gap:9px;font-size:13px;font-weight:600;letter-spacing:-.01em}
+.brand svg{width:18px;height:18px}
+.rail{position:absolute;top:var(--gut);right:var(--gut);z-index:6;display:flex;gap:5px;align-items:center}
+.rail i{width:14px;height:2px;border-radius:999px;background:var(--s4);
+  transition:background 320ms var(--ease),width 320ms var(--ease)}
+.rail i.on{background:var(--fg);width:24px}
+.rail i.done{background:#4A4A52}
+
+/* two columns: the phone owns the left half in 3D, every word owns the right.
+   they never share a coordinate, so nothing can overlap. */
+.col{position:absolute;z-index:5;
+  left:calc(50% + clamp(8px,1.4vw,26px));right:var(--gut);
+  top:50%;transform:translateY(-50%);max-width:520px;
+  display:flex;flex-direction:column;align-items:flex-start}
+.colin{width:100%;transition:opacity 320ms var(--ease),transform 320ms var(--ease)}
+.colin.swap{opacity:0;transform:translateY(10px)}
+
+.kicker{font-size:10px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;color:var(--faint)}
+h2{font-size:clamp(28px,3.5vw,48px);font-weight:600;letter-spacing:-.042em;line-height:1.04;margin-top:16px}
+.sub{font-size:clamp(15px,1.2vw,17px);color:var(--dim);margin-top:16px;max-width:42ch}
+.extra{margin-top:24px}
+.extra:empty{display:none}
+
+.fig{font-size:clamp(58px,7.2vw,100px);font-weight:600;letter-spacing:-.055em;line-height:.88}
+.fig small{display:block;font-size:11.5px;font-weight:400;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--faint);margin-top:14px}
+.cite{margin-top:20px;font-size:12px;color:var(--faint);line-height:1.55;max-width:40ch}
+.cite a{border-bottom:1px solid var(--s4);transition:color 160ms var(--ease)}
+@media(hover:hover){.cite a:hover{color:var(--fg)}}
+
+.qline{display:flex;gap:12px;align-items:baseline;padding:11px 0;border-top:1px solid var(--s3);font-size:14px}
+.qline code{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--faint);
+  letter-spacing:.04em;white-space:nowrap;min-width:24px}
+.qline span{color:var(--dim)}
+
+.miss{border-top:1px solid var(--s3)}
+.miss div{display:flex;align-items:center;gap:10px;padding:11px 0;font-size:14px;border-bottom:1px solid var(--s3)}
+.tagx{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:999px;
+  border:1px solid;white-space:nowrap}
+.tagx.bad{color:var(--junk);border-color:rgba(229,72,77,.4)}
+.tagx.ok{color:var(--dim);border-color:var(--s4)}
+.miss em{font-style:normal;color:var(--faint);margin-left:auto;font-size:12px}
+
+.play{margin-top:28px;width:100%;opacity:0;max-height:0;overflow:hidden;
+  transition:opacity 340ms var(--ease),max-height 420ms var(--ease)}
+.play.on{opacity:1;max-height:220px}
+.meters{display:flex;gap:30px;font-variant-numeric:tabular-nums}
+.meters span{display:block;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.meters b{font-size:26px;font-weight:600;letter-spacing:-.03em;line-height:1.25}
+.meters b.j{color:var(--junk)}
+.timer{height:2px;width:100%;max-width:300px;margin-top:18px;background:var(--s3);border-radius:999px;overflow:hidden}
+.timer i{display:block;height:100%;background:var(--fg);transform-origin:left;transform:scaleX(1)}
+.buried{font-size:11.5px;color:var(--junk);opacity:.9;margin-top:12px;min-height:17px}
+
+.hint{font-size:12.5px;color:var(--faint);margin-top:18px;max-width:40ch;line-height:1.5}
+.hint:empty{display:none}
+.hint b{color:var(--dim);font-weight:400}
+
+.acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
+.acts:empty{display:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font:inherit;
+  font-size:14px;font-weight:500;padding:12px 20px;border-radius:10px;cursor:pointer;
+  border:1px solid var(--s4);color:var(--fg);background:transparent;
+  transition:transform 160ms var(--ease),background 180ms var(--ease),border-color 180ms var(--ease)}
+.btn:active{transform:scale(.97)}
+.btn.solid{background:var(--fg);color:#08080A;border-color:var(--fg)}
+@media(hover:hover){.btn:hover{background:var(--s2);border-color:#3C3C45}
+  .btn.solid:hover{background:#E2E2E6;border-color:#E2E2E6}}
+
+/* narrow: phone above, sheet below, still two separate bands */
+@media(max-width:900px){
+  :root{--gut:18px}
+  .brand{font-size:12.5px}
+  .rail{top:var(--gut);bottom:auto;right:var(--gut)}
+  .rail i{width:10px}
+  .rail i.on{width:18px}
+
+  .col{left:0;right:0;top:auto;bottom:0;transform:none;max-width:none;
+    padding:30px var(--gut) calc(18px + env(safe-area-inset-bottom));
+    /* fixed stops, not percentages: the sheet changes height per stage and a
+       percentage fade would leave the first line sitting on the phone */
+    background:linear-gradient(180deg,rgba(6,6,7,0) 0,rgba(6,6,7,.97) 16px,var(--bg) 38px);
+    max-height:66svh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain}
+  h2{font-size:clamp(21px,5.6vw,27px);margin-top:9px;letter-spacing:-.03em}
+  .kicker{font-size:9px;letter-spacing:.2em}
+  .sub{font-size:14px;margin-top:9px;max-width:none}
+  .extra{margin-top:14px}
+  .fig{font-size:clamp(40px,12vw,58px)}
+  .fig small{font-size:10px;margin-top:8px}
+  .cite{font-size:11px;margin-top:9px;max-width:none}
+  .qline{font-size:13px;padding:8px 0}
+  .cite{margin-top:10px}
+  .miss div{font-size:13px;padding:8px 0}
+  .miss{margin-top:12px}
+  .miss em{font-size:11px}
+
+  /* the play block has to fit without pushing the buttons off the sheet */
+  /* during the round the sheet gives its space back to the phone */
+  body.playing .sub{display:none}
+  body.playing .col{padding-top:22px;max-height:60svh}
+  body.playing h2{font-size:20px;margin-top:7px}
+  body.playing .hint{font-size:11px;margin-top:10px}
+  .play{margin-top:16px}
+  .play.on{max-height:150px}
+  .meters{gap:22px}
+  .meters b{font-size:20px;line-height:1.15}
+  .meters span{font-size:8.5px;letter-spacing:.13em}
+  .timer{margin-top:12px;max-width:none}
+  .buried{font-size:10.5px;margin-top:8px;min-height:14px}
+  .hint{font-size:11.5px;margin-top:12px;max-width:none}
+  .acts{margin-top:16px;gap:8px}
+  .btn{padding:11px 16px;font-size:13.5px;flex:1 1 auto;min-width:120px}
+}
+@media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <canvas id="gl"></canvas>
+
+  <div class="brand">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <!-- one notification stays whole, the one under it is already sliding off -->
+      <rect x="3" y="5.2" width="18" height="5.2" rx="2.6" fill="currentColor"/>
+      <rect x="10" y="13.6" width="11" height="5.2" rx="2.6" fill="currentColor" opacity=".34"/>
+    </svg>
+    MuteAds
+  </div>
+  <div class="rail" id="rail"></div>
+
+  <div class="col">
+    <div class="colin" id="colin">
+      <div class="kicker" id="kicker"></div>
+      <h2 id="line"></h2>
+      <p class="sub" id="sub"></p>
+      <div class="extra" id="extra"></div>
+      <div class="play" id="play">
+        <div class="meters">
+          <div><span>Cleared</span><b class="j" id="mGone">0</b></div>
+          <div><span>On screen</span><b id="mLeft">0</b></div>
+        </div>
+        <div class="timer" id="timerWrap"><i id="timerBar"></i></div>
+        <div class="buried" id="buried"></div>
+      </div>
+      <div class="hint" id="hint"></div>
+      <div class="acts" id="acts"></div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const COARSE = matchMedia('(hover: none), (pointer: coarse)').matches;
+
+/* ======================================================= content */
+const JUNK=[
+  ['Lumo','Final hours, 70% off everything','Your size is still in stock. Ends at midnight.'],
+  ['Lumo','Your cart misses you','The three things you left are still there.'],
+  ['Lumo','Flash drop, three hours only','The jacket you saved is back in stock.'],
+  ['Streakly','You are about to lose your streak','A five-minute lesson is waiting.'],
+  ['Streakly','Double XP this weekend','Come back and claim it before Sunday.'],
+  ['Vantage','New season, strong looks','Outerwear, knits and trousers.'],
+  ['Vantage','Members-only early access','Two hours before everyone else.'],
+  ['Vantage','Last chance, extra 20% off','Code SAVE20 expires tonight.'],
+  ['Northbank','Personal loan offer','Approved in two minutes. Apply now.'],
+  ['Northbank','Raise your credit limit','You are pre-approved for $8,000.'],
+  ['Altitude','48-hour fare sale','Fares from $39. Book before it is gone.'],
+  ['Altitude','Double miles until Sunday','Every booking counts twice this week.'],
+  ['Grubly','Hungry? 40% off tonight','Only on orders over $20.'],
+  ['Grubly','We saved your usual order','One tap to reorder, $4 off.'],
+  ['Grubly','Free delivery, today only','No minimum on your next order.'],
+  ['Pulse','You have not trained in six days','Your friends are pulling ahead.'],
+  ['Pulse','Your weekly report is ready','See how you compare to everyone else.'],
+  ['Kettle','Your free trial ends tomorrow','Keep unlimited for $4.99 a month.'],
+  ['Kettle','New episodes just landed','Six shows picked for you.'],
+  ['Orbit','Someone viewed your profile','Upgrade to see who it was.'],
+  ['Orbit','Your network grew this week','See the twelve people you missed.'],
+  ['Ferry','Rides are 30% off right now','Surge has ended in your area.']
+];
+const REAL=[
+  ['Northbank','Verification code','Your code is 481923. Do not share it.'],
+  ['Northbank','Card payment declined','Your card ending 4417 was declined at Kettle.'],
+  ['Parcelo','Out for delivery','Parcel #4417 arrives before 6pm.'],
+  ['Parcelo','Delivery attempted','Nobody home. Reschedule by 8pm tonight.'],
+  ['Calendar','Design review in 10 minutes','14:30 to 15:15, link inside.'],
+  ['Calendar','Sprint retro starts now','15:30 to 16:00, meeting room 2.'],
+  ['Mira Chen','Mira Chen','Are you coming to dinner? Around 8.'],
+  ['Sam Reyes','Sam Reyes','Can you review the PR before standup? No rush.'],
+  ['Dr Okafor','Dr Okafor','Moving your Friday appointment to 11:00. Does that work?']
+];
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
+function buildRound(n){
+  n=n||26;
+  const realCount=Math.max(5,Math.round(n*.26));
+  const flags=shuffle(Array.from({length:n},(_,i)=>i<realCount));
+  let ji=0,ri=0;
+  const jp=shuffle(JUNK.slice()),rp=shuffle(REAL.slice());
+  return flags.map(isReal=>{
+    const c=isReal?rp[ri++%rp.length]:jp[ji++%jp.length];
+    return {app:c[0],title:c[1],body:c[2],real:isReal};
+  });
+}
+
+/* ======================================================= textures */
+const DPR=Math.min(devicePixelRatio||1,2);
+/* a card is ~230 css px wide on a phone; a 1320px texture for it is pure waste */
+const CDPR=matchMedia('(max-width:900px)').matches?1:DPR;
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);
+  c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+function clip(c,t,max){if(c.measureText(t).width<=max)return t;
+  let s=t;while(s.length>4&&c.measureText(s+'…').width>max)s=s.slice(0,-1);return s+'…';}
+
+/* a small drawn mark per sender; a bare initial reads like a placeholder */
+const ICONS={
+  Lumo(c){c.beginPath();c.moveTo(-6,-2);c.lineTo(6,-2);c.lineTo(5,7);c.lineTo(-5,7);c.closePath();c.stroke();
+          c.beginPath();c.arc(0,-3,3.6,Math.PI,0);c.stroke();},
+  Streakly(c){c.beginPath();c.moveTo(0,-8);c.bezierCurveTo(5,-3,7,1,3.5,5);
+          c.bezierCurveTo(1.5,7.2,-1.5,7.2,-3.5,5);c.bezierCurveTo(-7,1,-3,-1,0,-8);c.closePath();c.stroke();},
+  Vantage(c){c.beginPath();c.moveTo(-7,-3);c.lineTo(0,-7);c.lineTo(7,-3);c.lineTo(7,7);c.lineTo(-7,7);c.closePath();c.stroke();
+          c.beginPath();c.moveTo(-2.5,-5.4);c.lineTo(0,-2);c.lineTo(2.5,-5.4);c.stroke();},
+  Northbank(c){c.beginPath();c.moveTo(-8,-1);c.lineTo(0,-6.5);c.lineTo(8,-1);c.stroke();
+          c.beginPath();c.moveTo(-6,-1);c.lineTo(-6,6);c.moveTo(0,-1);c.lineTo(0,6);c.moveTo(6,-1);c.lineTo(6,6);c.stroke();
+          c.beginPath();c.moveTo(-8,7);c.lineTo(8,7);c.stroke();},
+  Altitude(c){c.beginPath();c.moveTo(-8,1.5);c.lineTo(8,-3);c.lineTo(8,-0.5);c.lineTo(-1,4);c.lineTo(-1,7);
+          c.lineTo(-4,5.5);c.lineTo(-4,3);c.closePath();c.stroke();},
+  Grubly(c){c.beginPath();c.moveTo(-5,-7);c.lineTo(-5,-1);c.moveTo(-2,-7);c.lineTo(-2,-1);
+          c.moveTo(-3.5,-1);c.lineTo(-3.5,7);c.stroke();
+          c.beginPath();c.moveTo(4,7);c.lineTo(4,-7);c.bezierCurveTo(7.5,-5,7.5,0,4,1.5);c.stroke();},
+  Parcelo(c){c.beginPath();c.rect(-7,-4,14,10);c.stroke();
+          c.beginPath();c.moveTo(-7,-4);c.lineTo(0,-7.5);c.lineTo(7,-4);c.stroke();
+          c.beginPath();c.moveTo(0,-7.5);c.lineTo(0,6);c.stroke();},
+  Calendar(c){c.beginPath();c.rect(-7,-5,14,12);c.stroke();
+          c.beginPath();c.moveTo(-7,-1);c.lineTo(7,-1);c.stroke();
+          c.beginPath();c.moveTo(-3.5,-8);c.lineTo(-3.5,-4);c.moveTo(3.5,-8);c.lineTo(3.5,-4);c.stroke();},
+  Pulse(c){c.beginPath();c.moveTo(-8,0);c.lineTo(-4.5,0);c.lineTo(-2.5,-6.5);
+          c.lineTo(0.5,6.5);c.lineTo(3,0);c.lineTo(8,0);c.stroke();},
+  Kettle(c){c.beginPath();c.moveTo(-3.5,-6.5);c.lineTo(6.5,0);c.lineTo(-3.5,6.5);c.closePath();c.stroke();},
+  Orbit(c){c.beginPath();c.arc(0,0,3.1,0,Math.PI*2);c.stroke();
+          c.save();c.rotate(-0.55);c.beginPath();c.ellipse(0,0,8.2,3.4,0,0,Math.PI*2);c.stroke();c.restore();},
+  Ferry(c){c.beginPath();c.moveTo(-8,2.5);c.lineTo(-6.5,-1.5);c.lineTo(-3,-4.5);
+          c.lineTo(3,-4.5);c.lineTo(6.5,-1.5);c.lineTo(8,2.5);c.stroke();
+          c.beginPath();c.moveTo(-8,2.5);c.lineTo(8,2.5);c.stroke();
+          c.beginPath();c.arc(-4.5,4.5,1.9,0,Math.PI*2);c.moveTo(6.4,4.5);
+          c.arc(4.5,4.5,1.9,0,Math.PI*2);c.stroke();},
+  person(c){c.beginPath();c.arc(0,-3,3.4,0,Math.PI*2);c.stroke();
+          c.beginPath();c.moveTo(-6.5,7.5);c.bezierCurveTo(-6.5,1.5,6.5,1.5,6.5,7.5);c.stroke();}
+};
+function drawIcon(c,app,cx,cy,color){
+  const f=ICONS[app]||ICONS.person;
+  c.save();c.translate(cx,cy);c.scale(1.05,1.05);
+  c.strokeStyle=color;c.lineWidth=1.7;c.lineJoin='round';c.lineCap='round';
+  f(c);c.restore();
+}
+
+function cardTexture(card,state){
+  const W=660,H=200,cv=document.createElement('canvas');
+  cv.width=W*CDPR;cv.height=H*CDPR;
+  const c=cv.getContext('2d');c.scale(CDPR,CDPR);
+  const kept=state==='kept',junk=state==='junk';
+  const ink   = junk?'#A8474B':'#F1F1F3';
+  const muted = junk?'#6B4043':'#8A8A93';
+
+  /* body */
+  rr(c,4,4,W-8,H-8,30);
+  const g=c.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'rgba(39,39,46,.96)');
+  g.addColorStop(1,'rgba(23,23,28,.96)');
+  c.fillStyle=g;c.fill();
+
+  /* hairline edge, brighter where a real surface would catch light */
+  c.save();rr(c,4,4,W-8,H-8,30);c.clip();
+  const edge=c.createLinearGradient(0,0,0,H);
+  edge.addColorStop(0,kept?'rgba(255,255,255,.55)':junk?'rgba(229,72,77,.6)':'rgba(255,255,255,.22)');
+  edge.addColorStop(.5,kept?'rgba(255,255,255,.22)':junk?'rgba(229,72,77,.3)':'rgba(255,255,255,.07)');
+  edge.addColorStop(1,kept?'rgba(255,255,255,.3)':junk?'rgba(229,72,77,.35)':'rgba(255,255,255,.05)');
+  c.strokeStyle=edge;c.lineWidth=3;rr(c,4,4,W-8,H-8,30);c.stroke();
+  c.restore();
+
+  /* app icon */
+  rr(c,26,26,34,34,11);
+  const ig=c.createLinearGradient(26,26,60,60);
+  ig.addColorStop(0,'rgba(255,255,255,.13)');ig.addColorStop(1,'rgba(255,255,255,.05)');
+  c.fillStyle=ig;c.fill();
+  c.strokeStyle='rgba(255,255,255,.14)';c.lineWidth=1.5;c.stroke();
+  drawIcon(c,card.app,43,44,junk?'#8A5054':'#C2C2CA');
+
+  /* app row */
+  c.textAlign='left';c.textBaseline='alphabetic';
+  if('letterSpacing' in c) c.letterSpacing='1.4px';
+  c.fillStyle=muted;c.font='500 13px Inter,sans-serif';
+  c.fillText(card.app.toUpperCase(),72,49);
+  if('letterSpacing' in c) c.letterSpacing='0px';
+
+  c.textAlign='right';c.fillStyle=junk?'#5E3A3D':'#63636B';c.font='400 13px Inter,sans-serif';
+  c.fillText('now',W-28,49);
+
+  /* message */
+  c.textAlign='left';
+  c.fillStyle=ink;c.font='600 25px Inter,sans-serif';
+  c.fillText(clip(c,card.title,W-108),26,110);
+  c.fillStyle=muted;c.font='400 19px Inter,sans-serif';
+  c.fillText(clip(c,card.body,W-108),26,143);
+
+  /* verdict stamp */
+  if(kept||junk){
+    const label=kept?'KEPT':'CLEARED';
+    c.font='600 13px Inter,sans-serif';
+    if('letterSpacing' in c) c.letterSpacing='1.2px';
+    const w=c.measureText(label).width+26;
+    rr(c,W-30-w,156,w,26,13);
+    c.fillStyle=kept?'rgba(244,244,245,.15)':'rgba(229,72,77,.18)';c.fill();
+    c.strokeStyle=kept?'rgba(244,244,245,.3)':'rgba(229,72,77,.4)';c.lineWidth=1.5;c.stroke();
+    c.fillStyle=kept?'#F4F4F5':'#E5484D';c.textAlign='center';
+    c.fillText(label,W-30-w/2,174);
+    if('letterSpacing' in c) c.letterSpacing='0px';
+  }
+
+  const t=new THREE.CanvasTexture(cv);
+  t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=8;return t;
+}
+
+function lockTexture(){
+  const W=620,H=1320,cv=document.createElement('canvas');
+  cv.width=W*DPR;cv.height=H*DPR;
+  const c=cv.getContext('2d');c.scale(DPR,DPR);
+
+  /* a wallpaper rather than flat black, so the glass has something behind it */
+  const base=c.createLinearGradient(0,0,W*.35,H);
+  base.addColorStop(0,'#191A24');base.addColorStop(.45,'#0C0C11');base.addColorStop(1,'#07070A');
+  c.fillStyle=base;c.fillRect(0,0,W,H);
+
+  const cool=c.createRadialGradient(W*.16,H*.20,0,W*.16,H*.20,W*1.15);
+  cool.addColorStop(0,'rgba(120,145,215,.20)');cool.addColorStop(.55,'rgba(80,95,150,.05)');
+  cool.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=cool;c.fillRect(0,0,W,H);
+
+  const warm=c.createRadialGradient(W*.92,H*.80,0,W*.92,H*.80,W*.95);
+  warm.addColorStop(0,'rgba(196,150,110,.13)');warm.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=warm;c.fillRect(0,0,W,H);
+
+  /* grain, so the gradient does not band on a big screen */
+  const img=c.getImageData(0,0,W,H),d=img.data;
+  for(let i=0;i<d.length;i+=4){
+    const n=(Math.random()-.5)*7;
+    d[i]+=n;d[i+1]+=n;d[i+2]+=n;
+  }
+  c.putImageData(img,0,0);
+
+  /* clock sits under the cutout; notifications stack below it and never cover it */
+  c.textAlign='center';
+  c.fillStyle='rgba(255,255,255,.95)';c.font='200 104px Inter,sans-serif';
+  c.fillText('14:23',W/2,228);
+  c.fillStyle='rgba(255,255,255,.42)';c.font='400 22px Inter,sans-serif';
+  c.fillText('Thursday, 18 September',W/2,270);
+
+  c.strokeStyle='rgba(255,255,255,.14)';c.lineWidth=3;c.lineCap='round';
+  c.beginPath();c.moveTo(W/2-48,H-56);c.lineTo(W/2+48,H-56);c.stroke();
+
+  const t=new THREE.CanvasTexture(cv);t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+
+/* a horizon for the aluminium to reflect; without one the metal reads flat */
+function envTexture(){
+  const cv=document.createElement('canvas');cv.width=32;cv.height=256;
+  const c=cv.getContext('2d');
+  const g=c.createLinearGradient(0,0,0,256);
+  g.addColorStop(0,'#33333E');g.addColorStop(.40,'#08080A');
+  g.addColorStop(.49,'#4E4E5E');g.addColorStop(.53,'#4E4E5E');
+  g.addColorStop(.62,'#070709');g.addColorStop(1,'#1A1A21');
+  c.fillStyle=g;c.fillRect(0,0,32,256);
+  const t=new THREE.CanvasTexture(cv);
+  t.mapping=THREE.EquirectangularReflectionMapping;
+  t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+
+function haloTexture(){
+  const cv=document.createElement('canvas');cv.width=cv.height=256;
+  const c=cv.getContext('2d');
+  const g=c.createRadialGradient(128,128,0,128,128,128);
+  g.addColorStop(0,'rgba(255,255,255,.26)');
+  g.addColorStop(.42,'rgba(190,205,255,.06)');
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=g;c.fillRect(0,0,256,256);
+  const t=new THREE.CanvasTexture(cv);t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+
+/* ======================================================= scene */
+const canvas=document.getElementById('gl');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,COARSE?1.75:2));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.05;
+renderer.localClippingEnabled=true;
+
+const scene=new THREE.Scene();
+scene.environment=envTexture();
+const camera=new THREE.PerspectiveCamera(32,1,.1,100);
+
+scene.add(new THREE.AmbientLight(0xffffff,.35));
+const key=new THREE.DirectionalLight(0xffffff,2.4);key.position.set(-6,8,10);scene.add(key);
+const rim=new THREE.DirectionalLight(0xa8bcff,2.0);rim.position.set(8,-2,-5);scene.add(rim);
+
+function roundedShape(w,h,r){
+  const s=new THREE.Shape();
+  s.moveTo(-w/2+r,-h/2);
+  s.lineTo(w/2-r,-h/2);s.quadraticCurveTo(w/2,-h/2,w/2,-h/2+r);
+  s.lineTo(w/2,h/2-r); s.quadraticCurveTo(w/2,h/2,w/2-r,h/2);
+  s.lineTo(-w/2+r,h/2);s.quadraticCurveTo(-w/2,h/2,-w/2,h/2-r);
+  s.lineTo(-w/2,-h/2+r);s.quadraticCurveTo(-w/2,-h/2,-w/2+r,-h/2);
+  return s;
+}
+const PW=3.5,PH=7.45;
+const rig=new THREE.Group();scene.add(rig);
+
+const halo=new THREE.Mesh(new THREE.PlaneGeometry(16,16),
+  new THREE.MeshBasicMaterial({map:haloTexture(),transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false}));
+halo.position.z=-2.8;rig.add(halo);
+
+const phone=new THREE.Group();rig.add(phone);
+const body=new THREE.Mesh(
+  new THREE.ExtrudeGeometry(roundedShape(PW,PH,.52),
+    {depth:.36,bevelEnabled:true,bevelSize:.05,bevelThickness:.05,bevelSegments:5,curveSegments:32}),
+  new THREE.MeshStandardMaterial({color:0x26262d,metalness:1,roughness:.26,envMapIntensity:1.5})
+);
+body.position.z=-.36;phone.add(body);
+/* ShapeGeometry gives us the rounded corners the body already has, but it carries
+   no usable UVs, so they are projected from the bounding box by hand */
+function roundedPlane(w,h,r,seg){
+  const geo=new THREE.ShapeGeometry(roundedShape(w,h,r),seg||18);
+  geo.computeBoundingBox();
+  const bb=geo.boundingBox,sx=bb.max.x-bb.min.x,sy=bb.max.y-bb.min.y;
+  const pos=geo.attributes.position,uv=new Float32Array(pos.count*2);
+  for(let i=0;i<pos.count;i++){
+    uv[i*2]  =(pos.getX(i)-bb.min.x)/sx;
+    uv[i*2+1]=(pos.getY(i)-bb.min.y)/sy;
+  }
+  geo.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  return geo;
+}
+
+/* concentric with the body: inner radius = outer radius minus the bezel */
+const BEZEL=.15, SW=PW-BEZEL*2, SH=PH-BEZEL*2, SR=.52-BEZEL;
+const screenGeo=roundedPlane(SW,SH,SR);
+
+/* the bevel pushes the body's front face to z=+bevelThickness, so anything on the
+   screen has to sit in front of that or the phone swallows it */
+const lock=new THREE.Mesh(screenGeo,new THREE.MeshBasicMaterial({map:lockTexture()}));
+lock.position.z=.075;phone.add(lock);
+
+/* glass sheen: one soft diagonal band so the screen reads as covered, not printed */
+const sheen=new THREE.Mesh(screenGeo,new THREE.MeshBasicMaterial({
+  map:(()=>{const cv=document.createElement('canvas');cv.width=256;cv.height=512;
+    const c=cv.getContext('2d');
+    const g=c.createLinearGradient(0,512,256,0);
+    g.addColorStop(0,'rgba(255,255,255,0)');
+    g.addColorStop(.42,'rgba(255,255,255,0)');
+    g.addColorStop(.52,'rgba(190,205,255,.085)');
+    g.addColorStop(.60,'rgba(255,255,255,0)');
+    g.addColorStop(1,'rgba(255,255,255,0)');
+    c.fillStyle=g;c.fillRect(0,0,256,512);
+    const t=new THREE.CanvasTexture(cv);t.colorSpace=THREE.SRGBColorSpace;return t;})(),
+  transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+sheen.position.z=.30;phone.add(sheen);
+
+/* camera cutout, so the top of the screen is not just empty black */
+const notch=new THREE.Mesh(roundedPlane(1.02,.30,.15,10),
+  new THREE.MeshBasicMaterial({color:0x000000}));
+notch.position.set(0,SH/2-.33,.085);phone.add(notch);
+const lens=new THREE.Mesh(new THREE.CircleGeometry(.055,24),
+  new THREE.MeshBasicMaterial({color:0x14141a}));
+lens.position.set(.30,SH/2-.33,.09);phone.add(lens);
+
+const deck=new THREE.Group();rig.add(deck);
+
+/* cards are bounded by the glass: swiping one out slides it under the bezel
+   instead of letting it fly across the page */
+const LOCAL_CLIP=[
+  new THREE.Plane(new THREE.Vector3( 1,0,0),SW/2),
+  new THREE.Plane(new THREE.Vector3(-1,0,0),SW/2),
+  new THREE.Plane(new THREE.Vector3(0,-1,0),SH/2),
+  new THREE.Plane(new THREE.Vector3(0, 1,0),SH/2)
+];
+const CLIP=LOCAL_CLIP.map(pl=>pl.clone());
+function syncClip(){
+  rig.updateMatrixWorld();
+  for(let i=0;i<4;i++) CLIP[i].copy(LOCAL_CLIP[i]).applyMatrix4(rig.matrixWorld);
+}
+
+/* ======================================================= cards */
+const CARD_W=SW-.26,CARD_H=(SW-.26)/3.3;
+const cardGeo=new THREE.PlaneGeometry(CARD_W,CARD_H);
+const live=[];
+const TOP=SH/2-2.34,GAP=CARD_H+.11;
+let SHOWN=5;   // clears the cutout, the clock and the date
+
+/* the shade starts below the clock: raise the top clip so an arriving card slides
+   out from under that line instead of passing across the time */
+/* the reveal line has to sit below the date but well clear of a settled card,
+   which drifts a little above its target while it is still easing in */
+LOCAL_CLIP[2].constant=TOP+CARD_H/2+.22;
+
+function spawn(card){
+  const m=new THREE.Mesh(cardGeo,new THREE.MeshBasicMaterial({
+    map:cardTexture(card,'idle'),transparent:true,depthWrite:false,opacity:0,clippingPlanes:CLIP}));
+  m.position.set(0,TOP+CARD_H*.95,.5);
+  m.userData={card,state:'idle',target:TOP,depth:.5,fade:1,gone:false,t:0,pop:0,drag:false,dx:0};
+  deck.add(m);live.push(m);relayout();return m;
+}
+function relayout(){
+  const vis=live.filter(m=>!m.userData.gone);
+  vis.forEach((m,i)=>{
+    const k=vis.length-1-i;
+    m.userData.target=TOP-k*GAP;
+    m.userData.depth=.5-k*.014;
+    m.userData.fade=k>=SHOWN?0:1;
+  });
+}
+function setState(m,s){
+  m.userData.state=s;
+  m.material.map.dispose();
+  m.material.map=cardTexture(m.userData.card,s);
+  m.material.needsUpdate=true;
+}
+function dismiss(m,dir){
+  if(m.userData.gone)return;
+  if(round&&round.log&&m.userData.state==='idle') round.log.push(m.userData.card);
+  setState(m,'junk');
+  m.userData.gone=true;m.userData.fly=dir;m.userData.t=0;
+  relayout();refresh();
+}
+function clearDeck(){
+  live.forEach(m=>{m.material.map.dispose();m.material.dispose();deck.remove(m);});
+  live.length=0;
+}
+
+/* ======================================================= swipe + tap */
+const ray=new THREE.Raycaster(),ptr=new THREE.Vector2();
+let drag=null,dragT=0,dragPx=0,moved=0;
+
+function worldPerPx(){
+  const d=camera.position.z-(rig.position.z+.5);
+  return (2*Math.tan(camera.fov*Math.PI/360)*d)/canvas.clientHeight;
+}
+function hit(e){
+  const r=canvas.getBoundingClientRect();
+  ptr.x=((e.clientX-r.left)/r.width)*2-1;
+  ptr.y=-((e.clientY-r.top)/r.height)*2+1;
+  ray.setFromCamera(ptr,camera);
+  const t=ray.intersectObjects(live.filter(m=>!m.userData.gone&&m.userData.fade>0));
+  return t.length?t[0].object:null;
+}
+canvas.addEventListener('pointermove',e=>{
+  if(drag){
+    const dpx=e.clientX-dragPx;
+    moved=Math.max(moved,Math.abs(dpx));
+    drag.userData.dx=dpx*worldPerPx();
+    return;
+  }
+  if(!COARSE) canvas.classList.toggle('grabbable',stage==='sort'&&!!hit(e));
+});
+canvas.addEventListener('pointerdown',e=>{
+  if(stage!=='sort')return;
+  const m=hit(e);if(!m)return;
+  drag=m;dragT=performance.now();dragPx=e.clientX;moved=0;
+  m.userData.drag=true;
+  canvas.classList.add('grabbing');
+  canvas.setPointerCapture(e.pointerId);
+});
+function endDrag(){
+  if(!drag)return;
+  const m=drag;drag=null;m.userData.drag=false;
+  canvas.classList.remove('grabbing');
+  const ms=performance.now()-dragT,vel=moved/Math.max(ms,1);
+  /* a quick flick counts even when it barely travelled, the way a real shade behaves */
+  const throwPx=Math.max(44,Math.min(70,innerWidth*0.14));
+  if(moved>throwPx||vel>.5) dismiss(m,m.userData.dx>0?1:-1);
+  else m.userData.dx=0;   // a tap does nothing; clearing is the only move
+}
+canvas.addEventListener('pointerup',endDrag);
+canvas.addEventListener('pointercancel',endDrag);
+
+/* ======================================================= stages */
+const $=id=>document.getElementById(id);
+const ui={colin:$('colin'),kicker:$('kicker'),line:$('line'),sub:$('sub'),extra:$('extra'),
+  play:$('play'),gone:$('mGone'),left:$('mLeft'),buried:$('buried'),
+  timerBar:$('timerBar'),hint:$('hint'),acts:$('acts'),rail:$('rail')};
+
+const STAGES=['intro','flood','sort','verdict','r1','r2','r3','fix','install'];
+let stage='intro',round=null,auto=0;
+/* stage time reads the wall clock instead of summing frame deltas. a throttled
+   tab or a slow phone would otherwise run the script in slow motion while the
+   CSS timer bar kept real time, and the two would drift apart */
+let stageT0=performance.now();
+
+ui.rail.innerHTML=STAGES.map(()=>'<i></i>').join('');
+function paintRail(){
+  const idx=STAGES.indexOf(stage);
+  [...ui.rail.children].forEach((el,i)=>{el.className=i===idx?'on':i<idx?'done':'';});
+}
+ui.acts.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&b.dataset.go)go(b.dataset.go);});
+addEventListener('keydown',e=>{
+  if(e.key==='Enter'||e.key===' '){
+    const b=ui.acts.querySelector('.solid')||ui.acts.querySelector('button');
+    if(b){e.preventDefault();b.click();}
+  }
+});
+
+function refresh(){
+  /* counted from the round log, not from live meshes: a cleared card is removed
+     from the scene a moment later and used to take its own tally with it */
+  const cleared=round&&round.log?round.log.length:0;
+  const idle=live.filter(m=>m.userData.state==='idle');
+  const buried=idle.filter(m=>m.userData.fade===0).length;
+  ui.gone.textContent=cleared;
+  ui.left.textContent=idle.length-buried;   // reachable, not merely unhandled
+  ui.buried.textContent=buried?`${buried} more buried under the stack`:'';
+}
+
+const ROUND_MS=30000;
+
+function paint(o){
+  ui.kicker.textContent=o.kicker||'';
+  ui.line.textContent=o.title||'';
+  ui.sub.textContent=o.sub||'';
+  ui.sub.style.display=o.sub?'':'none';
+  ui.extra.innerHTML=o.extra||'';
+  ui.hint.innerHTML=o.hint||'';
+  ui.acts.innerHTML=(o.acts||[]).map(a=>
+    a.href ? `<a class="btn ${a.tone||''}" href="${a.href}" target="_blank" rel="noopener">${a.label}</a>`
+           : `<button class="btn ${a.tone||''}" data-go="${a.go}">${a.label}</button>`).join('');
+  ui.play.classList.toggle('on',!!o.play);
+  document.body.classList.toggle('playing',!!o.play);
+  requestAnimationFrame(frame);   // the sheet just changed height
+}
+
+function go(next){
+  ui.colin.classList.add('swap');
+  setTimeout(()=>{apply(next);ui.colin.classList.remove('swap');},reduced?0:210);
+}
+
+const RESEARCH={
+  r1:{fig:'3×',cap:'the errors, from a 4.4 second glance',
+    title:'Reading one is enough to derail you.',
+    sub:'In a controlled sequential task, interruptions averaging 4.4 seconds tripled the rate of sequence errors on the trials right afterwards. Even 2.8 seconds doubled them. That is about how long it takes to read a notification and look away.',
+    cite:'Altmann, Trafton &amp; Hambrick, <em>Momentary interruptions can derail the train of thought</em>, Journal of Experimental Psychology: General, 2014 · <a href="https://interruptions.net/literature/Altmann-JExpPsycholGen14.pdf" target="_blank" rel="noopener">PDF</a>',
+    next:'r2',label:'Next'},
+  r2:{fig:'0',cap:'times you picked the phone up',
+    title:'You never have to answer one to pay for it.',
+    sub:'Notifications degraded performance on an attention task even when participants never touched the phone. Hearing the alert was enough; the cost came from the mind going to it, not from replying.',
+    cite:'Stothart, Mitchum &amp; Yehnert, <em>The attentional cost of receiving a cell phone notification</em>, JEP: Human Perception and Performance, 2015 · <a href="https://pubmed.ncbi.nlm.nih.gov/26121498/" target="_blank" rel="noopener">PubMed</a>',
+    next:'r3',label:'Next'},
+  r3:{fig:'47s',cap:'on one screen before you switch',
+    title:'And it happens all day.',
+    sub:'Gloria Mark’s teams have timed knowledge workers since 2004. The average stretch of attention on a single screen fell from about two and a half minutes, to 75 seconds by 2012, to 47 seconds in her most recent measurements.',
+    cite:'Gloria Mark, <em>Attention Span</em>, 2023 · <a href="https://ics.uci.edu/2023/01/26/regaining-focus-in-a-world-of-digital-distractions/" target="_blank" rel="noopener">UC Irvine</a>',
+    next:'fix',label:'So what fixes it'}
+};
+
+function apply(next){
+  stage=next;stageT0=performance.now();auto=0;paintRail();
+
+  if(next==='intro'){
+    clearDeck();
+    round={cards:buildRound(),i:0,next:1500,log:[]};
+    paint({kicker:'Thursday, 14:23',title:'You are in the middle of something.',sub:'Your phone is face up on the desk.'});
+    auto=2600;
+  }
+  else if(next==='flood'){
+    paint({kicker:'Thursday, 14:23',title:'Then they start arriving.',sub:'Some of them matter. Most of them want something.'});
+    auto=5000;
+  }
+  else if(next==='sort'){
+    paint({kicker:'Your turn',title:'Swipe the adverts away. Leave the rest.',
+      sub:'Thirty seconds, while you are trying to get something done.',
+      hint:'<b>Swipe an advert off the screen.</b> Leave anything you would actually want to read.',
+      play:true});
+    /* a countdown drains, it does not fill */
+    ui.timerBar.style.transition='none';ui.timerBar.style.transform='scaleX(1)';
+    requestAnimationFrame(()=>{
+      ui.timerBar.style.transition=`transform ${ROUND_MS}ms linear`;
+      ui.timerBar.style.transform='scaleX(0)';
+    });
+    auto=ROUND_MS;
+  }
+  else if(next==='verdict'){
+    const log=(round&&round.log)||[];
+    const deletedReal=log.filter(c=>c.real);
+    const deletedJunk=log.filter(c=>!c.real);
+    const onScreen=live.filter(m=>m.userData.state==='idle').map(m=>m.userData.card);
+    const adsLeft=onScreen.filter(c=>!c.real);
+    const spawned=log.length+onScreen.length;
+
+    /* capped so the buttons stay above the fold on a phone */
+    const rows=[];
+    deletedReal.slice(0,3).forEach(c=>rows.push(['deleted','bad',c.title,c.app]));
+    adsLeft.slice(0,Math.max(0,4-rows.length)).forEach(c=>rows.push(['still there','ok',c.title,c.app]));
+
+    paint({
+      kicker:'The score',
+      title: deletedReal.length
+        ? `You deleted ${deletedReal.length} thing${deletedReal.length>1?'s':''} you needed.`
+        : adsLeft.length ? 'You kept every advert that arrived.' : 'A clean sweep.',
+      sub: (()=>{
+        const a=`You cleared ${deletedJunk.length} advert${deletedJunk.length===1?'':'s'} out of ${spawned} notifications`;
+        const b=adsLeft.length?`, and ${adsLeft.length} more ${adsLeft.length===1?'is':'are'} still sitting there`:'';
+        return `${a}${b}. Thirty seconds, with nothing else competing for you.`;
+      })(),
+      extra: rows.length?`<div class="miss">${rows.map(r=>
+        `<div><span class="tagx ${r[1]}">${r[0]}</span><span>${r[2]}</span><em>${r[3]}</em></div>`).join('')}</div>`:'',
+      hint:'Now do it while you are working.',
+      acts:[{label:'Try again',go:'intro'},{label:'What this costs you',go:'r1',tone:'solid'}]
+    });
+  }
+  else if(RESEARCH[next]){
+    const R=RESEARCH[next];
+    paint({kicker:'What it costs you',title:R.title,sub:R.sub,
+      extra:`<div class="fig">${R.fig}<small>${R.cap}</small></div><p class="cite">${R.cite}</p>`,
+      hint: next==='r3' ? 'The “23 minutes to refocus” figure you have read is in none of these. It traces to a 2006 interview, not a study.' : '',
+      acts:[{label:R.label,go:R.next,tone:'solid'}]});
+  }
+  else if(next==='fix'){
+    clearDeck();
+    round={cards:buildRound(14),i:0,next:600,autoJudge:true,log:[]};
+    paint({kicker:'The fix',title:'The same flood, handled for you.',
+      sub:'Two questions decide each one, in about four hundred milliseconds.',
+      extra:`<div class="qline"><code>01</code><span>is_promo: is this selling, nudging, pulling you back?</span></div>
+             <div class="qline"><code>02</code><span>is_needed: is there a code, a delivery, a person inside?</span></div>`,
+      hint:'<b>Both gates have to agree.</b> Your bank sends the code and the loan offer down the same channel.',
+      acts:[{label:'How to get it',go:'install',tone:'solid'}],play:true});
+  }
+  else if(next==='install'){
+    paint({kicker:'Setup',title:'Two minutes, three steps.',
+      sub:'No account, no server, no subscription. The key is yours, and at normal volume it runs about a dollar a year.',
+      extra:`<div class="qline"><code>01</code><span>Install the APK, or clone and build it</span></div>
+             <div class="qline"><code>02</code><span>Get a Jev key from console.typesafe.ai</span></div>
+             <div class="qline"><code>03</code><span>Paste it in, grant notification access</span></div>
+             <p class="cite">Open source · Built by <a href="https://x.com/emredsgn" target="_blank" rel="noopener">Emre Aktaş</a></p>`,
+      acts:[{label:'Download the APK',href:'https://github.com/emre-aktas/muteads/releases',tone:'solid'},
+            {label:'Read the source',href:'https://github.com/emre-aktas/muteads'},
+            {label:'Run it again',go:'intro'}]});
+  }
+  refresh();
+}
+
+/* ======================================================= layout + loop */
+let visH=1,visW=1,phoneY=0;
+/* air between the brand row and the top of the handset on narrow screens */
+const PHONE_TOP_PAD=92;
+
+/* the phone is sized and centred inside whatever the sheet leaves free, rather
+   than taking a fixed share of the viewport. the sheet grows and shrinks with the
+   stage, so this is remeasured whenever the column is repainted. */
+function frame(){
+  const w=canvas.clientWidth,h=canvas.clientHeight;
+  camera.aspect=w/h;
+  const fov=camera.fov*Math.PI/180;
+  const narrow=w<900;
+  let share,centrePx;
+
+  if(narrow){
+    /* on a phone only the top of the handset earns its space: the clock and the
+       first couple of notifications, big enough to actually read. the span below
+       is derived from the layout rather than guessed, so the phone grows whenever
+       the sheet shrinks. */
+    const col=document.querySelector('.col');
+    const top=col?col.getBoundingClientRect().top:h*.5;
+    const bandPx=Math.max(190,top-PHONE_TOP_PAD);
+    const SPAN=4.05;                      // phone top down to just past the 2nd card
+    const byHeight=PH/(SPAN*(h/bandPx));
+    /* zooming for height alone pushes the handset wider than the viewport and the
+       cards get sliced at both edges, so the width has the final say */
+    const byWidth=PH*(w/h)/(PW*1.14);
+    share=Math.min(byHeight,byWidth);
+    centrePx=null;                        // anchored by its top edge, not its centre
+  }else{
+    share=.80;
+    centrePx=h/2;
+  }
+
+  camera.position.z=(PH/share/2)/Math.tan(fov/2);
+  camera.updateProjectionMatrix();
+  visH=2*Math.tan(fov/2)*camera.position.z;
+  visW=visH*camera.aspect;
+
+  if(centrePx===null){
+    phoneY=visH*(0.5-PHONE_TOP_PAD/h)-PH/2;   // park the top edge, let the bottom bleed
+    SHOWN=4;
+  }else{
+    phoneY=(h/2-centrePx)/h*visH;
+    SHOWN=5;
+  }
+  relayout();
+}
+
+function resize(){
+  const w=canvas.clientWidth,h=canvas.clientHeight,pr=renderer.getPixelRatio();
+  if(canvas.width===Math.round(w*pr)&&canvas.height===Math.round(h*pr))return;
+  renderer.setSize(w,h,false);
+  frame();
+}
+
+let px=0,py=0;
+if(!reduced&&!COARSE) addEventListener('pointermove',e=>{px=e.clientX/innerWidth-.5;py=e.clientY/innerHeight-.5;});
+
+let last=performance.now();
+function tick(now){
+  const dt=Math.min(now-last,50);last=now;
+  const st=now-stageT0;
+  resize();syncClip();
+
+  if(round&&(stage==='flood'||stage==='sort'||stage==='fix')){
+    if(round.i<round.cards.length&&st>round.next){
+      const card=round.cards[round.i];
+      const m=spawn(card);round.i++;
+      /* the flood tightens as the clock runs down, so a perfect round stays out of reach */
+      round.next=st+(round.autoJudge?780:Math.max(420,2050-round.i*85));
+      if(round.autoJudge){
+        setTimeout(()=>{
+          if(!m.parent)return;
+          if(card.real){setState(m,'kept');m.userData.pop=1;}
+          else dismiss(m,Math.random()>.5?1:-1);
+          refresh();
+        },340+Math.random()*180);
+      }
+      refresh();
+    }
+  }
+  if(auto&&st>auto){
+    auto=0;
+    if(stage==='intro')go('flood');
+    else if(stage==='flood')go('sort');
+    else if(stage==='sort')go('verdict');
+  }
+
+  /* phone sits in the left column on wide screens, above the sheet on narrow ones */
+  const narrow=canvas.clientWidth<900;
+  const tx=((narrow?0.5:0.27)-0.5)*visW;
+  const ty=phoneY;
+  rig.position.x+=(tx-rig.position.x)*.08;
+  rig.position.y+=(ty+Math.sin(now/3000)*.05-rig.position.y)*.08;
+  rig.rotation.y+=((narrow?.16:.30)+px*.10-rig.rotation.y)*.05;
+  rig.rotation.x+=((-.04-py*.07)-rig.rotation.x)*.05;
+  halo.rotation.y=-rig.rotation.y;
+
+  for(let i=live.length-1;i>=0;i--){
+    const m=live[i],d=m.userData;
+    if(d.gone){
+      d.t+=dt/1000;
+      m.position.x+=d.fly*dt*.0075;
+      m.position.y-=dt*.0012;
+      m.rotation.z+=d.fly*dt*.00022;
+      m.material.opacity=Math.max(0,1-d.t*2.1);
+      if(m.material.opacity<=.01){deck.remove(m);live.splice(i,1);}
+      continue;
+    }
+    const k=1-Math.pow(.0018,dt/1000);
+    m.position.y+=(d.target-m.position.y)*k;
+    m.position.z+=(d.depth-m.position.z)*.09;
+    m.position.x+=(d.dx-m.position.x)*(d.drag?.45:.2);
+    m.rotation.z=m.position.x*.035;
+    const swipe=Math.max(0,1-Math.abs(m.position.x)/3.4);
+    m.material.opacity+=((d.fade*swipe)-m.material.opacity)*(dt/1000)*6;
+    if(d.pop){d.pop*=.86;m.scale.setScalar(1+d.pop*.05);
+      if(d.pop<.01){d.pop=0;m.scale.setScalar(1);}}
+  }
+
+  renderer.render(scene,camera);
+  requestAnimationFrame(tick);
+}
+
+resize();frame();
+addEventListener('orientationchange',()=>setTimeout(frame,250));
+requestAnimationFrame(tick);
+apply('intro');
+
+window.__dbg={go:apply,get stage(){return stage},get round(){return round},
+  cards:()=>live.map(m=>({a:m.userData.card.app,s:m.userData.state,y:+m.position.y.toFixed(2),op:+m.material.opacity.toFixed(2)})),
+  cam:()=>({z:+camera.position.z.toFixed(2),visW:+visW.toFixed(2)})};
+</script>
+</body>
+</html>
